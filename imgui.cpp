@@ -1485,7 +1485,161 @@ int ImFormatStringV(char* buf, size_t buf_size, const char* fmt, va_list args)
 }
 #endif // #ifdef IMGUI_DISABLE_DEFAULT_FORMAT_FUNCTIONS
 
-// CRC32 needs a 1KB lookup table (not cache friendly)
+// Helper macros to define arch on various compiles
+#ifdef _MSC_VER
+//Microsoft compiler
+#ifdef _M_X64
+#define IMGUI_ARCH_INTEL64
+#define IMGUI_ARCH_INTEL
+#endif
+#ifdef _M_IX86
+#define IMGUI_ARCH_INTEL32
+#define IMGUI_ARCH_INTEL
+#endif
+#else 
+// Gcc and Clang use same macroses for 32bit and 64bit intel
+#ifdef __x86_64__
+#define IMGUI_ARCH_INTEL64
+#define IMGUI_ARCH_INTEL
+#endif
+#ifdef __i386__
+#define IMGUI_ARCH_INTEL32
+#define IMGUI_ARCH_INTEL
+#endif
+#endif
+
+#if defined(IMGUI_ARCH_INTEL) && defined(_MSC_VER) && !defined(IMGUI_NO_DYNAMIC_CODE_DISPATCHING) // Define has_sse_4_2 function on intel platform for msvc compiler if auto code dispatching is not disabled 
+
+#ifdef _MSC_VER
+#include <intrin.h> // For __cpuid with microsoft compiler
+#else
+#include <cpuid.h> // For __get_cpuid with gcc
+#endif
+
+namespace
+{   
+    bool has_sse_4_2()
+    {
+#if defined(__SSE4_2__) || defined(__AVX__) // Msvc doesn't define __SSE4_2__ (gcc does with -msse42) but does define __AVX__ which implies sse42
+        return true;// Sse detected based on compilation flags
+#else
+        static int has_sse_4_2 = 0;
+
+        if (has_sse_4_2)
+            return has_sse_4_2 > 0;
+
+#ifdef _MSC_VER
+        int regs[4]; //Eax,Ebx,Ecx,Edx
+        __cpuid(regs, 0);
+        if (regs[0] >= 1) // Does it work on amd as well or I have to test for geniune intel ?
+        {
+            __cpuid(regs, 1);
+
+            static const int SSE4_2_FLAG = 1 << 20;
+            has_sse_4_2 = (regs[2] & SSE4_2_FLAG) != 0 ? 1 : -1;
+            return (regs[2] & SSE4_2_FLAG) != 0;
+        }
+#elif __GNUC__
+        unsigned int regs[4]; //Eax,Ebx,Ecx,Edx
+        if (__get_cpuid(1u, &regs[0], &regs[1], &regs[2], &regs[3]))
+        {
+            has_sse_4_2 = (regs[2] & bit_SSE4_2) ? 1 : -1;
+            return (regs[2] & bit_SSE4_2);
+        }
+#endif
+
+        has_sse_4_2 = -1;
+        return false;
+#endif
+    }
+
+#if defined(__SSE4_2__) || defined(__AVX__) // Msvc doesn't define __SSE4_2__ (gcc does with -msse42) but does define __AVX__ which implies sse42
+#define has_sse_4_2() (true)// SSSE42 detected based on compilation flags
+#endif
+
+}
+#endif //IMGUI_ARCH_INTEL
+
+#if defined(IMGUI_HASH_IMPLEMENTATION) && IMGUI_HASH_IMPLEMENTATION == 1
+//
+// CRC32C (with hw codepath when available)
+//
+
+#if defined(IMGUI_ARCH_INTEL) && ((defined(__SSE4_2__) || defined(__AVX__)) || !defined(IMGUI_NO_DYNAMIC_CODE_DISPATCHING))
+
+// On intel arch, if compilation flags are ok, just use this and disable default code path further down
+// if flags are not ok and dynamic dispatching enabled use automatic dispatching 'target attribute' on gcc,clang 
+// and on msvc prefix function name for manual dispatching
+
+#if (defined(__SSE4_2__) || defined(__AVX__)) // Msvc doesn't define __SSE4_2__ (gcc does with -msse42) but does define __AVX__ which implies sse42   
+ImU32 ImHashData
+#else
+// When compilation flags do not cover sse4 flags, do dynamic dispatching
+#ifndef _MSC_VER
+__attribute__((target("sse4.2")))  ImU32 ImHashData
+#else
+static ImU32 sse42_ImHashData
+#endif
+#endif
+
+(const void* data_p, size_t data_size, ImU32 seed)
+{
+    unsigned char* data = (unsigned char*)data_p, * data_end = (unsigned char*)data_p + data_size;
+
+    ImU32 crc = ~seed;
+    {
+#ifdef IMGUI_ARCH_INTEL64 // 32bit mode doesn't have 64bit crc32
+        uint64_t crc64 = crc;
+        for (; data + 8 <= data_end; data += 8)
+            crc64 = _mm_crc32_u64(crc64, *(uint64_t*)data);
+        crc = (ImU32)crc64;
+#else   
+        for (; data + 4 <= data_end; data += 4)
+            crc = _mm_crc32_u32(crc, *(ImU32*)data);
+#endif
+        for (; data != data_end; ++data)
+            crc = _mm_crc32_u8(crc, *data);
+
+    }
+    return ~crc;
+}
+#endif 
+
+#if !(defined(__SSE4_2__) || defined(__AVX__))
+
+#if defined(IMGUI_ARCH_INTEL) && !defined(_MSC_VER ) && !defined(IMGUI_NO_DYNAMIC_CODE_DISPATCHING) // On gcc and clang it'll auto-dispatch
+__attribute__((target("default")))
+#endif
+ImU32 ImHashData(const void* data_p, size_t data_size, ImU32 seed)
+{
+#if defined(IMGUI_ARCH_INTEL) && defined(_MSC_VER ) && !defined(IMGUI_NO_DYNAMIC_CODE_DISPATCHING) // On microsoft manually dispatch
+    if (has_sse_4_2())
+        return sse42_ImHashData(data_p, data_size, seed);
+#endif
+
+    ImU32 crc = ~seed;
+
+    //See this post for reference https://stackoverflow.com/questions/29174349/mm-crc32-u8-gives-different-result-than-reference-code?noredirect=1&lq=1   
+    //Compute CRC of buf[0..len-1] with initial CRC crc.  This permits the computation of a CRC by feeding this routine a chunk of the input data at a time.  The value of crc for the first chunk should be zero.
+    for (unsigned char* data = (unsigned char*)data_p, *data_end = (unsigned char*)data_p + data_size; data != data_end; ++data)
+    {
+        //#define POLY 0xedb88320 //CRC-32 (Ethernet, ZIP, etc.) polynomial in reversed bit order. */
+#define POLY 0x82f63b78 // CRC-32C (iSCSI) polynomial in reversed bit order.
+        crc ^= *data;
+        for (int k = 0; k < 8; k++)
+            crc = crc & 1 ? (crc >> 1) ^ POLY : crc >> 1;
+    }
+
+    return ~crc;
+}
+#endif
+
+#elif !defined(IMGUI_HASH_IMPLEMENTATION) || IMGUI_HASH_IMPLEMENTATION == 0
+//
+// Original crc32 code
+//
+
+// CRC32 needs a 1KB lookup table (not cache fridata_endly)
 // Although the code to generate the table is simple and shorter than the table itself, using a const table allows us to easily:
 // - avoid an unnecessary branch/memory tap, - keep the ImHashXXX functions usable by static constructors, - make it thread-safe.
 static const ImU32 GCrc32LookupTable[256] =
@@ -1511,7 +1665,7 @@ static const ImU32 GCrc32LookupTable[256] =
 // Known size hash
 // It is ok to call ImHashData on a string with known length but the ### operator won't be supported.
 // FIXME-OPT: Replace with e.g. FNV1a hash? CRC32 pretty much randomly access 1KB. Need to do proper measurements.
-ImU32 ImHashData(const void* data_p, size_t data_size, ImU32 seed)
+inline ImU32 ImHashData(const void* data_p, size_t data_size, ImU32 seed)
 {
     ImU32 crc = ~seed;
     const unsigned char* data = (const unsigned char*)data_p;
@@ -1520,40 +1674,38 @@ ImU32 ImHashData(const void* data_p, size_t data_size, ImU32 seed)
         crc = (crc >> 8) ^ crc32_lut[(crc & 0xFF) ^ *data++];
     return ~crc;
 }
+#else
+#pragma error "incorrect value for macro IMGUI_HASH_IMPLEMENTATION"
+#endif
 
 // Zero-terminated string hash, with support for ### to reset back to seed value
 // We support a syntax of "label###id" where only "###id" is included in the hash, and only "label" gets displayed.
 // Because this syntax is rarely used we are optimizing for the common case.
 // - If we reach ### in the string we discard the hash so far and reset to the seed.
 // - We don't do 'current += 2; continue;' after handling ### to keep the code smaller/faster (measured ~10% diff in Debug build)
-// FIXME-OPT: Replace with e.g. FNV1a hash? CRC32 pretty much randomly access 1KB. Need to do proper measurements.
-ImU32 ImHashStr(const char* data_p, size_t data_size, ImU32 seed)
+ImU32 ImHashStr(const char* str, size_t size, ImU32 seed)
 {
-    seed = ~seed;
-    ImU32 crc = seed;
-    const unsigned char* data = (const unsigned char*)data_p;
-    const ImU32* crc32_lut = GCrc32LookupTable;
-    if (data_size != 0)
+    if (!size) size = strlen(str);
+
+   // skip anything prior '###' which effectively resets the hash
+    if (size >= 3) for (const char* c = (const char*)memchr(str, '#', size - 2); c; c = (const char*)memchr(c, '#', size - 2))
     {
-        while (data_size-- != 0)
+        bool skip1 = (c[1] == '#'); // skip one extra char if it's '##' only
+        if (!skip1 | (c[2] != '#'))
         {
-            unsigned char c = *data++;
-            if (c == '#' && data_size >= 2 && data[0] == '#' && data[1] == '#')
-                crc = seed;
-            crc = (crc >> 8) ^ crc32_lut[(crc & 0xFF) ^ c];
+            c += 1 + skip1;
+            continue;
         }
+
+        size = str + size - (c + 3);
+        str = c + 3;
+        break;
     }
-    else
-    {
-        while (unsigned char c = *data++)
-        {
-            if (c == '#' && data[0] == '#' && data[1] == '#')
-                crc = seed;
-            crc = (crc >> 8) ^ crc32_lut[(crc & 0xFF) ^ c];
-        }
-    }
-    return ~crc;
+
+
+    return ImHashData(str, size, seed);
 }
+
 
 //-----------------------------------------------------------------------------
 // [SECTION] MISC HELPERS/UTILITIES (File functions)
@@ -3896,6 +4048,9 @@ void ImGui::NewFrame()
     g.CurrentWindowStack.resize(0);
     g.BeginPopupStack.resize(0);
     ClosePopupsOverWindow(g.NavWindow, false);
+
+    // set 'no need for refresh later' initially until one of the widgets tells otherwise
+    g.IO.NextRefresh = std::numeric_limits<float>::infinity();
 
     // [DEBUG] Item picker tool - start with DebugStartItemPicker() - useful to visually select an item and break into its call-stack.
     UpdateDebugToolItemPicker();
