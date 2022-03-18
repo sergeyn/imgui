@@ -527,17 +527,17 @@ void ImGui::ShowDemoWindow(bool* p_open)
     {
         if (ImGui::BeginTable("split", 3))
         {
-            ImGui::TableNextColumn(); ImGui::Checkbox("No titlebar", &no_titlebar);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No scrollbar", &no_scrollbar);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No menu", &no_menu);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No move", &no_move);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No resize", &no_resize);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No collapse", &no_collapse);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No close", &no_close);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No nav", &no_nav);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No background", &no_background);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No bring to front", &no_bring_to_front);
-            ImGui::TableNextColumn(); ImGui::Checkbox("Unsaved document", &unsaved_document);
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No titlebar", &no_titlebar)) ImGui::SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No scrollbar", &no_scrollbar)) ImGui::SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No menu", &no_menu)) ImGui::SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No move", &no_move)) ImGui::SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No resize", &no_resize)) ImGui::SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No collapse", &no_collapse)) ImGui::SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No close", &no_close)) ImGui::SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No nav", &no_nav)) ImGui::SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No background", &no_background)) ImGui::SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No bring to front", &no_bring_to_front)) ImGui::SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("Unsaved document", &unsaved_document)) ImGui::SetNextRefresh(0, "Window options changed");
             ImGui::EndTable();
         }
     }
@@ -1661,7 +1661,9 @@ static void ShowDemoWindowWidgets()
             phase += 0.10f * values_offset;
             refresh_time += 1.0f / 60.0f;
         }
-
+        if (animate)
+            ImGui::SetNextRefresh(float(refresh_time - ImGui::GetTime()), "Plot Animation");
+        
         // Plots can display overlay texts
         // (in this example, we will display an average value)
         {

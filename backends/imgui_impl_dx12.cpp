@@ -284,6 +284,11 @@ static void ImGui_ImplDX12_CreateFontsTexture()
     // Build texture atlas
     ImGuiIO& io = ImGui::GetIO();
     ImGui_ImplDX12_Data* bd = ImGui_ImplDX12_GetBackendData();
+
+    // clear prior textures if any
+    SafeRelease(bd->pFontTextureResource);
+
+
     unsigned char* pixels;
     int width, height;
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
@@ -420,7 +425,6 @@ static void ImGui_ImplDX12_CreateFontsTexture()
         srvDesc.Texture2D.MostDetailedMip = 0;
         srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         bd->pd3dDevice->CreateShaderResourceView(pTexture, &srvDesc, bd->hFontSrvCpuDescHandle);
-        SafeRelease(bd->pFontTextureResource);
         bd->pFontTextureResource = pTexture;
     }
 
@@ -664,9 +668,15 @@ bool    ImGui_ImplDX12_CreateDeviceObjects()
     if (result_pipeline_state != S_OK)
         return false;
 
-    ImGui_ImplDX12_CreateFontsTexture();
-
     return true;
+}
+
+void     ImGui_ImplDX12_InvalidateFontTexture()
+{
+   ImGui_ImplDX12_Data* bd = ImGui_ImplDX12_GetBackendData();
+   if (!bd || !bd->pd3dDevice)
+      return;
+   SafeRelease(bd->pFontTextureResource);
 }
 
 void    ImGui_ImplDX12_InvalidateDeviceObjects()
@@ -743,4 +753,6 @@ void ImGui_ImplDX12_NewFrame()
 
     if (!bd->pPipelineState)
         ImGui_ImplDX12_CreateDeviceObjects();
+    if (!bd->pFontTextureResource) // texture can be released in case of dpi change
+       ImGui_ImplDX12_CreateFontsTexture();
 }

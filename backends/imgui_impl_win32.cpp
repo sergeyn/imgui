@@ -78,15 +78,16 @@ typedef DWORD (WINAPI *PFN_XInputGetState)(DWORD, XINPUT_STATE*);
 
 struct ImGui_ImplWin32_Data
 {
+    INT64                       Time;
+    INT64                       TicksPerSecond;
     HWND                        hWnd;
     HWND                        MouseHwnd;
     bool                        MouseTracked;
-    int                         MouseButtonsDown;
-    INT64                       Time;
-    INT64                       TicksPerSecond;
-    ImGuiMouseCursor            LastMouseCursor;
     bool                        HasGamepad;
     bool                        WantUpdateHasGamepad;
+    int                         MouseButtonsDown;
+    int                         MouseX, MouseY; // against spurious WM_MOUSEMOVE events
+    ImGuiMouseCursor            LastMouseCursor;
 
 #ifndef IMGUI_IMPL_WIN32_DISABLE_GAMEPAD
     HMODULE                     XInputDLL;
@@ -129,7 +130,10 @@ bool    ImGui_ImplWin32_Init(void* hwnd)
     bd->WantUpdateHasGamepad = true;
     bd->TicksPerSecond = perf_frequency;
     bd->Time = perf_counter;
+    //bd->LastMouseCursor = ImGuiMouseCursor_Arrow; //windows default is the arrow, no need to reset it
     bd->LastMouseCursor = ImGuiMouseCursor_COUNT;
+    bd->MouseX = -1;
+    bd->MouseY = -1;
 
     // Set platform dependent data in viewport
     ImGui::GetMainViewport()->PlatformHandleRaw = (void*)hwnd;
@@ -180,8 +184,15 @@ static bool ImGui_ImplWin32_UpdateMouseCursor()
     if (io.ConfigFlags & ImGuiConfigFlags_NoMouseCursorChange)
         return false;
 
-    ImGuiMouseCursor imgui_cursor = ImGui::GetMouseCursor();
-    if (imgui_cursor == ImGuiMouseCursor_None || io.MouseDrawCursor)
+    ImGui_ImplWin32_Data* bd = ImGui_ImplWin32_GetBackendData();
+
+    ImGuiMouseCursor mouse_cursor = io.MouseDrawCursor ? ImGuiMouseCursor_None : ImGui::GetMouseCursor();
+    if (bd->LastMouseCursor == mouse_cursor)
+        return false;
+
+    bd->LastMouseCursor = mouse_cursor;
+
+    if (mouse_cursor == ImGuiMouseCursor_None /*|| io.MouseDrawCursor*/)
     {
         // Hide OS mouse cursor if imgui is drawing it or if it wants no cursor
         ::SetCursor(NULL);
@@ -190,7 +201,7 @@ static bool ImGui_ImplWin32_UpdateMouseCursor()
     {
         // Show OS mouse cursor
         LPTSTR win32_cursor = IDC_ARROW;
-        switch (imgui_cursor)
+        switch (mouse_cursor)
         {
         case ImGuiMouseCursor_Arrow:        win32_cursor = IDC_ARROW; break;
         case ImGuiMouseCursor_TextInput:    win32_cursor = IDC_IBEAM; break;
@@ -328,11 +339,52 @@ static void ImGui_ImplWin32_UpdateGamepads()
 #endif // #ifndef IMGUI_IMPL_WIN32_DISABLE_GAMEPAD
 }
 
-void    ImGui_ImplWin32_NewFrame()
+bool    ImGui_ImplWin32_NewFrame(bool poll_only)
 {
     ImGuiIO& io = ImGui::GetIO();
     ImGui_ImplWin32_Data* bd = ImGui_ImplWin32_GetBackendData();
     IM_ASSERT(bd != NULL && "Did you call ImGui_ImplWin32_Init()?");
+
+    INT64 current_time;
+    
+
+
+    
+    for (;;)
+    {
+        ::QueryPerformanceCounter((LARGE_INTEGER*)&current_time);
+    
+        double next_refresh = !poll_only ? io.NextRefresh : 0.0;
+
+        double cur_delta = double(current_time - bd->Time) / bd->TicksPerSecond;
+        if (cur_delta <= next_refresh)
+        {
+            double ms_to_wait_double = (next_refresh - cur_delta) * 1000.0f;
+            unsigned int ms_to_wait = ms_to_wait_double >= MAXDWORD ? INFINITE : unsigned int(ms_to_wait_double);
+            if (ms_to_wait)
+                MsgWaitForMultipleObjectsEx(0, nullptr, ms_to_wait, QS_ALLEVENTS, 0);                
+        }            
+
+            
+        MSG msg;
+        while (::PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE))
+        {
+            if (msg.message != WM_QUIT)
+            {
+                ::TranslateMessage(&msg);
+                ::DispatchMessage(&msg);
+                continue;                
+            }
+            return false;
+        }
+
+        
+        if (cur_delta <= next_refresh)
+            continue;
+
+        break;
+    }
+
 
     // Setup display size (every frame to accommodate for window resizing)
     RECT rect = { 0, 0, 0, 0 };
@@ -340,8 +392,6 @@ void    ImGui_ImplWin32_NewFrame()
     io.DisplaySize = ImVec2((float)(rect.right - rect.left), (float)(rect.bottom - rect.top));
 
     // Setup time step
-    INT64 current_time = 0;
-    ::QueryPerformanceCounter((LARGE_INTEGER*)&current_time);
     io.DeltaTime = (float)(current_time - bd->Time) / bd->TicksPerSecond;
     bd->Time = current_time;
 
@@ -352,15 +402,12 @@ void    ImGui_ImplWin32_NewFrame()
     ImGui_ImplWin32_ProcessKeyEventsWorkarounds();
 
     // Update OS mouse cursor with the cursor requested by imgui
-    ImGuiMouseCursor mouse_cursor = io.MouseDrawCursor ? ImGuiMouseCursor_None : ImGui::GetMouseCursor();
-    if (bd->LastMouseCursor != mouse_cursor)
-    {
-        bd->LastMouseCursor = mouse_cursor;
-        ImGui_ImplWin32_UpdateMouseCursor();
-    }
-
+    ImGui_ImplWin32_UpdateMouseCursor();
+    
     // Update game controllers (if enabled and available)
     ImGui_ImplWin32_UpdateGamepads();
+
+    return true;
 }
 
 // There is no distinct VK_xxx for keypad enter, instead it is VK_RETURN + KF_EXTENDED, we assign it an arbitrary value to make code more readable (VK_ codes go up to 255)
@@ -504,13 +551,18 @@ IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARA
     if (ImGui::GetCurrentContext() == NULL)
         return 0;
 
+    const char* key_refresh_reason;
     ImGuiIO& io = ImGui::GetIO();
     ImGui_ImplWin32_Data* bd = ImGui_ImplWin32_GetBackendData();
 
     switch (msg)
     {
     case WM_MOUSEMOVE:
+        
         // We need to call TrackMouseEvent in order to receive WM_MOUSELEAVE events
+        if (!bd->MouseHwnd) // mouse entered client area
+            bd->LastMouseCursor = ImGuiMouseCursor_COUNT;
+
         bd->MouseHwnd = hwnd;
         if (!bd->MouseTracked)
         {
@@ -518,19 +570,38 @@ IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARA
             ::TrackMouseEvent(&tme);
             bd->MouseTracked = true;
         }
-        io.AddMousePosEvent((float)GET_X_LPARAM(lParam), (float)GET_Y_LPARAM(lParam));
+        
+        {
+            int m_x = GET_X_LPARAM(lParam), m_y = GET_Y_LPARAM(lParam);
+            if (bd->MouseX != m_x || bd->MouseY != m_y) // spurious WM_MOUSEMOVE events are a real thing. don't act on them
+            {
+                bd->MouseX = m_x, bd->MouseY = m_y;
+
+                io.SetNextRefresh(0, "mouse move"); //return 0;
+
+                io.AddMousePosEvent((float)m_x, (float)m_y);
+            }
+        }
         break;
     case WM_MOUSELEAVE:
         if (bd->MouseHwnd == hwnd)
             bd->MouseHwnd = NULL;
         bd->MouseTracked = false;
+        //bd->LastMouseCursor = ImGuiMouseCursor_COUNT;
+        bd->MouseX = -1, bd->MouseY = -1;
         io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
         break;
-    case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK:
-    case WM_RBUTTONDOWN: case WM_RBUTTONDBLCLK:
-    case WM_MBUTTONDOWN: case WM_MBUTTONDBLCLK:
-    case WM_XBUTTONDOWN: case WM_XBUTTONDBLCLK:
+    case WM_LBUTTONDOWN:  key_refresh_reason = "mouse lbuttonup down"; goto md;
+    case WM_LBUTTONDBLCLK: key_refresh_reason = "mouse lbuttonup dblclk"; goto md;
+    case WM_RBUTTONDOWN:  key_refresh_reason = "mouse rbuttonup down"; goto md;
+    case WM_RBUTTONDBLCLK: key_refresh_reason = "mouse rbuttonup dblclk"; goto md;
+    case WM_MBUTTONDOWN:  key_refresh_reason = "mouse mbuttonup donw"; goto md;
+    case WM_MBUTTONDBLCLK: key_refresh_reason = "mouse mbuttonup dblclk"; goto md;
+    case WM_XBUTTONDOWN:  key_refresh_reason = "mouse xbuttonup down"; goto md;
+    case WM_XBUTTONDBLCLK: key_refresh_reason = "mouse xbuttonup dblclk"; 
+        md:
     {
+        io.SetNextRefresh(0, key_refresh_reason);
         int button = 0;
         if (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK) { button = 0; }
         if (msg == WM_RBUTTONDOWN || msg == WM_RBUTTONDBLCLK) { button = 1; }
@@ -542,11 +613,13 @@ IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARA
         io.AddMouseButtonEvent(button, true);
         return 0;
     }
-    case WM_LBUTTONUP:
-    case WM_RBUTTONUP:
-    case WM_MBUTTONUP:
-    case WM_XBUTTONUP:
+    case WM_LBUTTONUP: key_refresh_reason = "mouse lbutton up"; goto mu;
+    case WM_RBUTTONUP:key_refresh_reason = "mouse rbutton up"; goto mu;
+    case WM_MBUTTONUP:key_refresh_reason = "mouse mbutton up"; goto mu;
+    case WM_XBUTTONUP:key_refresh_reason = "mouse xbutton up";        
+        mu:
     {
+        io.SetNextRefresh(0, key_refresh_reason);
         int button = 0;
         if (msg == WM_LBUTTONUP) { button = 0; }
         if (msg == WM_RBUTTONUP) { button = 1; }
@@ -559,19 +632,27 @@ IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARA
         return 0;
     }
     case WM_MOUSEWHEEL:
+        io.SetNextRefresh(0, "wheel up");
         io.AddMouseWheelEvent(0.0f, (float)GET_WHEEL_DELTA_WPARAM(wParam) / (float)WHEEL_DELTA);
         return 0;
     case WM_MOUSEHWHEEL:
+        io.SetNextRefresh(0, "wheel down");
         io.AddMouseWheelEvent((float)GET_WHEEL_DELTA_WPARAM(wParam) / (float)WHEEL_DELTA, 0.0f);
         return 0;
     case WM_KEYDOWN:
+        key_refresh_reason = "key down"; goto l;
     case WM_KEYUP:
+        key_refresh_reason = "key up"; goto l;
     case WM_SYSKEYDOWN:
+        key_refresh_reason = "syskey down"; goto l;
     case WM_SYSKEYUP:
-    {
-        const bool is_key_down = (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN);
+        key_refresh_reason = "key up";
+l:
+        {
+           const bool is_key_down = (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN);
         if (wParam < 256)
         {
+            io.SetNextRefresh(0, key_refresh_reason);
             // Submit modifiers
             ImGui_ImplWin32_UpdateKeyModifiers();
 
