@@ -6682,6 +6682,15 @@ void ImGui::End()
     if (!(window->Flags & ImGuiWindowFlags_ChildWindow))    // FIXME: add more options for scope of logging
         LogFinish();
 
+    //fix against scrollbar size change: https://github.com/ocornut/imgui/pull/5116#issuecomment-1073457456
+    if ((window->ScrollbarX || window->ScrollbarY) && g.IO.NextRefresh > 0)
+    {
+        ImVec2 sizes, sizes_ideal;
+        CalcWindowContentSizes(window, &sizes, &sizes_ideal);
+        if ((window->ScrollbarX && window->ContentSize.x != sizes.x) || (window->ScrollbarY && window->ContentSize.y != sizes.y))
+            g.IO.SetNextRefresh(0, "scrollbar resize"); 
+    }
+
     // Pop from window stack
     g.LastItemData = g.CurrentWindowStack.back().ParentLastItemDataBackup;
     if (window->Flags & ImGuiWindowFlags_ChildMenu)

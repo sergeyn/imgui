@@ -359,8 +359,8 @@ bool    ImGui_ImplWin32_NewFrame(bool poll_only)
         double cur_delta = double(current_time - bd->Time) / bd->TicksPerSecond;
         if (cur_delta <= next_refresh)
         {
-            double ms_to_wait_double = (next_refresh - cur_delta) * 1000.0f;
-            unsigned int ms_to_wait = ms_to_wait_double >= MAXDWORD ? INFINITE : unsigned int(ms_to_wait_double);
+            double ms_to_wait_double = (next_refresh - cur_delta) * 1000.0f;            
+            unsigned int ms_to_wait = ms_to_wait_double >= MAXDWORD ? INFINITE : unsigned int(ms_to_wait_double >= 0.0 ? ms_to_wait_double : 0.0);
             if (ms_to_wait)
                 MsgWaitForMultipleObjectsEx(0, nullptr, ms_to_wait, QS_ALLEVENTS, 0);                
         }            
