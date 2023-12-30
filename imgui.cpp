@@ -1974,6 +1974,34 @@ void ImFormatStringToTempBufferV(const char** out_buf, const char** out_buf_end,
     }
 }
 
+//      32/64 bit test msvc and intel       32/64 bit test clang,gcc,intel(linux)                    
+#if (defined(_M_IX86)||defined(_M_X64) || defined(__i386__)||defined(__x86_64__)) && (defined(__SSE4_2__) || defined(__AVX__) ) //msvc doesn't define __SSE4_2__, so use next available __AVX__, which implies sse4.2 support
+ImGuiID ImHashData(const void* data_p, size_t data_size, ImU32 seed)
+        {
+    unsigned char* data = (unsigned char*)data_p, * data_end = (unsigned char*)data_p + data_size;
+
+    ImU32 crc = ~seed;
+#if 1
+#if defined(_M_X64) || defined(__x86_64__) // 32bit mode doesn't have 64bit crc32
+        uint64_t crc64 = crc;
+        for (; data + 8 <= data_end; data += 8)
+            crc64 = _mm_crc32_u64(crc64, *(uint64_t*)data);
+        crc = (ImU32)crc64;
+#elif defined(_M_IX86) || defined(__i386__)
+        for (; data + 4 <= data_end; data += 4)
+            crc = _mm_crc32_u32(crc, *(ImU32*)data);
+#endif
+        for (; data != data_end; ++data)
+            crc = _mm_crc32_u8(crc, *data);
+#else
+    //non-sse version - See this post for reference https://stackoverflow.com/questions/29174349/mm-crc32-u8-gives-different-result-than-reference-code?noredirect=1&lq=1   //Compute CRC of buf[0..len-1] with initial CRC crc.  This permits the computation of a CRC by feeding this routine a chunk of the input data at a time.  The value of crc for the first chunk should be zero.
+    for (unsigned char* data = (unsigned char*)data_p, *data_end = (unsigned char*)data_p + data_size; data != data_end; ++data) crc ^= *data; for (int k = 0; k < 8; k++) crc = crc & 1 ? (crc >> 1) ^ (0x82f63b78/*CRC-32C (iSCSI) polynomial in reversed bit order*/)  /*0xedb88320 CRC-32 (Ethernet, ZIP, etc.) polynomial in reversed bit order.*/ : crc >> 1;
+#endif
+
+    return ~crc;
+}
+
+#else
 // CRC32 needs a 1KB lookup table (not cache friendly)
 // Although the code to generate the table is simple and shorter than the table itself, using a const table allows us to easily:
 // - avoid an unnecessary branch/memory tap, - keep the ImHashXXX functions usable by static constructors, - make it thread-safe.
@@ -2009,6 +2037,7 @@ ImGuiID ImHashData(const void* data_p, size_t data_size, ImGuiID seed)
         crc = (crc >> 8) ^ crc32_lut[(crc & 0xFF) ^ *data++];
     return ~crc;
 }
+#endif
 
 // Zero-terminated string hash, with support for ### to reset back to seed value
 // We support a syntax of "label###id" where only "###id" is included in the hash, and only "label" gets displayed.
@@ -2018,30 +2047,30 @@ ImGuiID ImHashData(const void* data_p, size_t data_size, ImGuiID seed)
 // FIXME-OPT: Replace with e.g. FNV1a hash? CRC32 pretty much randomly access 1KB. Need to do proper measurements.
 ImGuiID ImHashStr(const char* data_p, size_t data_size, ImGuiID seed)
 {
-    seed = ~seed;
-    ImU32 crc = seed;
-    const unsigned char* data = (const unsigned char*)data_p;
-    const ImU32* crc32_lut = GCrc32LookupTable;
-    if (data_size != 0)
+    if (!data_size)
+        data_size = strlen(data_p);
+
+   // skip anything prior '###' which effectively resets the hash
+    if (data_size >= 3)
     {
-        while (data_size-- != 0)
-        {
-            unsigned char c = *data++;
-            if (c == '#' && data_size >= 2 && data[0] == '#' && data[1] == '#')
-                crc = seed;
-            crc = (crc >> 8) ^ crc32_lut[(crc & 0xFF) ^ c];
-        }
-    }
-    else
+        size_t n = data_size - 2;
+        for (const char* p = data_p, *c = (const char*)memchr(data_p, '#', n); c; c = (const char*)memchr(c, '#', n))
     {
-        while (unsigned char c = *data++)
+          n -= c - p; p = c;
+            int skip1 = (c[1] == '#') /* skip one extra char if it's '##' only*/, skip2 = (skip1 == 0) | (c[2] != '#');
+            if (skip2)
         {
-            if (c == '#' && data[0] == '#' && data[1] == '#')
-                crc = seed;
-            crc = (crc >> 8) ^ crc32_lut[(crc & 0xFF) ^ c];
+            c += 1 + skip1;
+            continue;
         }
+
+            data_size = data_p + data_size - (c + 3);
+            data_p = c + 3;
+        break;
     }
-    return ~crc;
+    }
+
+    return ImHashData(data_p, data_size, seed);
 }
 
 //-----------------------------------------------------------------------------
@@ -4779,6 +4808,9 @@ void ImGui::NewFrame()
     g.ItemFlagsStack.push_back(ImGuiItemFlags_None);
     g.GroupStack.resize(0);
 
+    // set 'no need for refresh later' initially until one of the widgets tells otherwise
+    g.IO.NextRefresh = FLT_MAX; g.IO.SetNextRefresh(FLT_MAX, "");
+
     // [DEBUG] Update debug features
     UpdateDebugToolItemPicker();
     UpdateDebugToolStackQueries();
@@ -6235,7 +6267,10 @@ void ImGui::RenderWindowTitleBarContents(ImGuiWindow* window, const ImRect& titl
     // Collapse button (submitting first so it gets priority when choosing a navigation init fallback)
     if (has_collapse_button)
         if (CollapseButton(window->GetID("#COLLAPSE"), collapse_button_pos))
+        {
             window->WantCollapseToggle = true; // Defer actual collapsing to next frame as we are too far in the Begin() function
+            g.IO.SetNextRefresh(0, "window collapse toggled");
+        }
 
     // Close button
     if (has_close_button)
@@ -6534,13 +6569,17 @@ bool ImGui::Begin(const char* name, bool* p_open, ImGuiWindowFlags flags)
 
         // Hide new windows for one frame until they calculate their size
         if (window_just_created && (!window_size_x_set_by_api || !window_size_y_set_by_api))
+        {
             window->HiddenFramesCannotSkipItems = 1;
+            g.IO.SetNextRefresh(0, "HiddenFrames JustCreated");// don't delay rendering of new frame to get hidden frames working
+        }
 
         // Hide popup/tooltip window when re-opening while we measure size (because we recycle the windows)
         // We reset Size/ContentSize for reappearing popups/tooltips early in this function, so further code won't be tempted to use the old size.
         if (window_just_activated_by_user && (flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_Tooltip)) != 0)
         {
             window->HiddenFramesCannotSkipItems = 1;
+            g.IO.SetNextRefresh(0, "HiddenFrames JustActivated"); // don't delay rendering of new frame to get hidden frames working
             if (flags & ImGuiWindowFlags_AlwaysAutoResize)
             {
                 if (!window_size_x_set_by_api)

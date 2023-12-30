@@ -231,10 +231,10 @@ static void HelpMarker(const char* desc)
 
 // Helper to wire demo markers located in code to an interactive browser
 typedef void (*ImGuiDemoMarkerCallback)(const char* file, int line, const char* section, void* user_data);
-extern ImGuiDemoMarkerCallback      GImGuiDemoMarkerCallback;
-extern void*                        GImGuiDemoMarkerCallbackUserData;
-ImGuiDemoMarkerCallback             GImGuiDemoMarkerCallback = NULL;
-void*                               GImGuiDemoMarkerCallbackUserData = NULL;
+extern ImGuiDemoMarkerCallback  GImGuiDemoMarkerCallback;
+extern void*                    GImGuiDemoMarkerCallbackUserData;
+ImGuiDemoMarkerCallback         GImGuiDemoMarkerCallback = NULL;
+void*                           GImGuiDemoMarkerCallbackUserData = NULL;
 #define IMGUI_DEMO_MARKER(section)  do { if (GImGuiDemoMarkerCallback != NULL) GImGuiDemoMarkerCallback(__FILE__, __LINE__, section, GImGuiDemoMarkerCallbackUserData); } while (0)
 
 //-----------------------------------------------------------------------------
@@ -458,7 +458,6 @@ void ImGui::ShowDemoWindow(bool* p_open)
             }
             ImGui::CheckboxFlags("io.ConfigFlags: NoMouseCursorChange", &io.ConfigFlags, ImGuiConfigFlags_NoMouseCursorChange);
             ImGui::SameLine(); HelpMarker("Instruct backend to not alter mouse cursor shape and visibility.");
-            ImGui::Checkbox("io.ConfigInputTrickleEventQueue", &io.ConfigInputTrickleEventQueue);
             ImGui::SameLine(); HelpMarker("Enable input queue trickling: some types of events submitted during the same frame (e.g. button down + up) will be spread over multiple frames, improving interactions with low framerates.");
             ImGui::Checkbox("io.MouseDrawCursor", &io.MouseDrawCursor);
             ImGui::SameLine(); HelpMarker("Instruct Dear ImGui to render a mouse cursor itself. Note that a mouse cursor rendered via your application GPU rendering path will feel more laggy than hardware cursor, but will be more in sync with your other visuals.\n\nSome desktop applications may use both kinds of cursors (e.g. enable software cursor only when resizing/dragging something).");
@@ -470,7 +469,6 @@ void ImGui::ShowDemoWindow(bool* p_open)
             ImGui::SameLine(); HelpMarker("Pressing Enter will keep item active and select contents (single-line only).");
             ImGui::Checkbox("io.ConfigDragClickToInputText", &io.ConfigDragClickToInputText);
             ImGui::SameLine(); HelpMarker("Enable turning DragXXX widgets into text input with a simple mouse click-release (without moving).");
-            ImGui::Checkbox("io.ConfigWindowsResizeFromEdges", &io.ConfigWindowsResizeFromEdges);
             ImGui::SameLine(); HelpMarker("Enable resizing of windows from their edges and from the lower-left corner.\nThis requires (io.BackendFlags & ImGuiBackendFlags_HasMouseCursors) because it needs mouse cursor feedback.");
             ImGui::Checkbox("io.ConfigWindowsMoveFromTitleBarOnly", &io.ConfigWindowsMoveFromTitleBarOnly);
             ImGui::Checkbox("io.ConfigMacOSXBehaviors", &io.ConfigMacOSXBehaviors);
@@ -544,17 +542,18 @@ void ImGui::ShowDemoWindow(bool* p_open)
     {
         if (ImGui::BeginTable("split", 3))
         {
-            ImGui::TableNextColumn(); ImGui::Checkbox("No titlebar", &no_titlebar);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No scrollbar", &no_scrollbar);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No menu", &no_menu);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No move", &no_move);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No resize", &no_resize);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No collapse", &no_collapse);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No close", &no_close);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No nav", &no_nav);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No background", &no_background);
-            ImGui::TableNextColumn(); ImGui::Checkbox("No bring to front", &no_bring_to_front);
-            ImGui::TableNextColumn(); ImGui::Checkbox("Unsaved document", &unsaved_document);
+            auto& io = ImGui::GetIO();
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No titlebar", &no_titlebar)) io.SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No scrollbar", &no_scrollbar)) io.SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No menu", &no_menu)) io.SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No move", &no_move)) io.SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No resize", &no_resize)) io.SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No collapse", &no_collapse)) io.SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No close", &no_close)) io.SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No nav", &no_nav)) io.SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No background", &no_background)) io.SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("No bring to front", &no_bring_to_front)) io.SetNextRefresh(0, "Window options changed");
+            ImGui::TableNextColumn(); if (ImGui::Checkbox("Unsaved document", &unsaved_document)) io.SetNextRefresh(0, "Window options changed");
             ImGui::EndTable();
         }
     }
@@ -1165,11 +1164,11 @@ static void ShowDemoWindowWidgets()
             ImGui::PushID(i);
             if (i > 0)
                 ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(i - 1.0f, i - 1.0f));
-            ImVec2 size = ImVec2(32.0f, 32.0f);                         // Size of the image we want to make visible
-            ImVec2 uv0 = ImVec2(0.0f, 0.0f);                            // UV coordinates for lower-left
-            ImVec2 uv1 = ImVec2(32.0f / my_tex_w, 32.0f / my_tex_h);    // UV coordinates for (32,32) in our texture
-            ImVec4 bg_col = ImVec4(0.0f, 0.0f, 0.0f, 1.0f);             // Black background
-            ImVec4 tint_col = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);           // No tint
+            ImVec2 size = ImVec2(32.0f, 32.0f);                     // Size of the image we want to make visible
+            ImVec2 uv0 = ImVec2(0.0f, 0.0f);                        // UV coordinates for lower-left
+            ImVec2 uv1 = ImVec2(32.0f / my_tex_w, 32.0f / my_tex_h);// UV coordinates for (32,32) in our texture
+            ImVec4 bg_col = ImVec4(0.0f, 0.0f, 0.0f, 1.0f);         // Black background
+            ImVec4 tint_col = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);       // No tint
             if (ImGui::ImageButton("", my_tex_id, size, uv0, uv1, bg_col, tint_col))
                 pressed_count += 1;
             if (i > 0)
@@ -1637,8 +1636,8 @@ static void ShowDemoWindowWidgets()
             ImGui::CheckboxFlags("ImGuiInputTextFlags_ReadOnly", &flags, ImGuiInputTextFlags_ReadOnly);
             ImGui::CheckboxFlags("ImGuiInputTextFlags_NoUndoRedo", &flags, ImGuiInputTextFlags_NoUndoRedo);
             ImGui::InputText("Hello", buf1, IM_ARRAYSIZE(buf1), flags);
-            ImGui::TreePop();
-        }
+        ImGui::TreePop();
+    }
 
         ImGui::TreePop();
     }
@@ -2471,8 +2470,8 @@ static void ShowDemoWindowWidgets()
                     ImGui::ColorButton("drag me", col4);
 
             }
-            ImGui::TreePop();
-        }
+        ImGui::TreePop();
+    }
 
         ImGui::TreePop();
     }
@@ -2824,7 +2823,7 @@ static void ShowDemoWindowLayout()
 
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (float)offset_x);
             if (override_bg_color)
-                ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(255, 0, 0, 100));
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(255, 0, 0, 100));
             ImGui::BeginChild("Red", ImVec2(200, 100), child_flags, ImGuiWindowFlags_None);
             if (override_bg_color)
                 ImGui::PopStyleColor();
@@ -2927,11 +2926,11 @@ static void ShowDemoWindowLayout()
         // Text
         IMGUI_DEMO_MARKER("Layout/Basic Horizontal Layout/SameLine");
         ImGui::Text("Two items: Hello"); ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1, 1, 0, 1), "Sailor");
+        ImGui::TextColored(ImVec4(1,1,0,1), "Sailor");
 
         // Adjust spacing
         ImGui::Text("More spacing: Hello"); ImGui::SameLine(0, 20);
-        ImGui::TextColored(ImVec4(1, 1, 0, 1), "Sailor");
+        ImGui::TextColored(ImVec4(1,1,0,1), "Sailor");
 
         // Button
         ImGui::AlignTextToFramePadding();
@@ -3528,7 +3527,7 @@ static void ShowDemoWindowLayout()
         }
 
         ImGui::TreePop();
-    }
+        }
 
     IMGUI_DEMO_MARKER("Layout/Overlap Mode");
     if (ImGui::TreeNode("Overlap Mode"))
@@ -6103,7 +6102,7 @@ static void ShowDemoWindowInputs()
 #endif
             ImGui::Text("Keys down:");         for (ImGuiKey key = start_key; key < ImGuiKey_NamedKey_END; key = (ImGuiKey)(key + 1)) { if (funcs::IsLegacyNativeDupe(key) || !ImGui::IsKeyDown(key)) continue; ImGui::SameLine(); ImGui::Text((key < ImGuiKey_NamedKey_BEGIN) ? "\"%s\"" : "\"%s\" %d", ImGui::GetKeyName(key), key); }
             ImGui::Text("Keys mods: %s%s%s%s", io.KeyCtrl ? "CTRL " : "", io.KeyShift ? "SHIFT " : "", io.KeyAlt ? "ALT " : "", io.KeySuper ? "SUPER " : "");
-            ImGui::Text("Chars queue:");       for (int i = 0; i < io.InputQueueCharacters.Size; i++) { ImWchar c = io.InputQueueCharacters[i]; ImGui::SameLine();  ImGui::Text("\'%c\' (0x%04X)", (c > ' ' && c <= 255) ? (char)c : '?', c); } // FIXME: We should convert 'c' to UTF-8 here but the functions are not public.
+            ImGui::Text("Chars queue:");        for (int i = 0; i < io.InputQueueCharacters.Size; i++) { ImWchar c = io.InputQueueCharacters[i]; ImGui::SameLine();  ImGui::Text("\'%c\' (0x%04X)", (c > ' ' && c <= 255) ? (char)c : '?', c); } // FIXME: We should convert 'c' to UTF-8 here but the functions are not public.
 
             ImGui::TreePop();
         }
@@ -6112,7 +6111,7 @@ static void ShowDemoWindowInputs()
         IMGUI_DEMO_MARKER("Inputs & Focus/Outputs");
         ImGui::SetNextItemOpen(true, ImGuiCond_Once);
         if (ImGui::TreeNode("Outputs"))
-        {
+            {
             HelpMarker(
                 "The value of io.WantCaptureMouse and io.WantCaptureKeyboard are normally set by Dear ImGui "
                 "to instruct your application of how to route inputs. Typically, when a value is true, it means "
@@ -6148,7 +6147,7 @@ static void ShowDemoWindowInputs()
                     ImGui::SetNextFrameWantCaptureKeyboard(capture_override_keyboard == 1);
 
                 ImGui::TreePop();
-            }
+                }
             ImGui::TreePop();
         }
 
@@ -6175,7 +6174,7 @@ static void ShowDemoWindowInputs()
                 char label[32];
                 sprintf(label, "Mouse cursor %d: %s", i, mouse_cursors_names[i]);
                 ImGui::Bullet(); ImGui::Selectable(label, false);
-                if (ImGui::IsItemHovered())
+            if (ImGui::IsItemHovered())
                     ImGui::SetMouseCursor(i);
             }
             ImGui::TreePop();
@@ -7023,66 +7022,66 @@ struct ExampleAppConsole
         const float footer_height_to_reserve = ImGui::GetStyle().ItemSpacing.y + ImGui::GetFrameHeightWithSpacing();
         if (ImGui::BeginChild("ScrollingRegion", ImVec2(0, -footer_height_to_reserve), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar))
         {
-            if (ImGui::BeginPopupContextWindow())
-            {
-                if (ImGui::Selectable("Clear")) ClearLog();
-                ImGui::EndPopup();
-            }
+        if (ImGui::BeginPopupContextWindow())
+        {
+            if (ImGui::Selectable("Clear")) ClearLog();
+            ImGui::EndPopup();
+        }
 
-            // Display every line as a separate entry so we can change their color or add custom widgets.
-            // If you only want raw text you can use ImGui::TextUnformatted(log.begin(), log.end());
-            // NB- if you have thousands of entries this approach may be too inefficient and may require user-side clipping
-            // to only process visible items. The clipper will automatically measure the height of your first item and then
-            // "seek" to display only items in the visible area.
-            // To use the clipper we can replace your standard loop:
-            //      for (int i = 0; i < Items.Size; i++)
-            //   With:
-            //      ImGuiListClipper clipper;
-            //      clipper.Begin(Items.Size);
-            //      while (clipper.Step())
-            //         for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
-            // - That your items are evenly spaced (same height)
-            // - That you have cheap random access to your elements (you can access them given their index,
-            //   without processing all the ones before)
-            // You cannot this code as-is if a filter is active because it breaks the 'cheap random-access' property.
-            // We would need random-access on the post-filtered list.
-            // A typical application wanting coarse clipping and filtering may want to pre-compute an array of indices
-            // or offsets of items that passed the filtering test, recomputing this array when user changes the filter,
-            // and appending newly elements as they are inserted. This is left as a task to the user until we can manage
-            // to improve this example code!
-            // If your items are of variable height:
-            // - Split them into same height items would be simpler and facilitate random-seeking into your list.
-            // - Consider using manual call to IsRectVisible() and skipping extraneous decoration from your items.
-            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 1)); // Tighten spacing
-            if (copy_to_clipboard)
-                ImGui::LogToClipboard();
+        // Display every line as a separate entry so we can change their color or add custom widgets.
+        // If you only want raw text you can use ImGui::TextUnformatted(log.begin(), log.end());
+        // NB- if you have thousands of entries this approach may be too inefficient and may require user-side clipping
+        // to only process visible items. The clipper will automatically measure the height of your first item and then
+        // "seek" to display only items in the visible area.
+        // To use the clipper we can replace your standard loop:
+        //      for (int i = 0; i < Items.Size; i++)
+        //   With:
+        //      ImGuiListClipper clipper;
+        //      clipper.Begin(Items.Size);
+        //      while (clipper.Step())
+        //         for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
+        // - That your items are evenly spaced (same height)
+        // - That you have cheap random access to your elements (you can access them given their index,
+        //   without processing all the ones before)
+        // You cannot this code as-is if a filter is active because it breaks the 'cheap random-access' property.
+        // We would need random-access on the post-filtered list.
+        // A typical application wanting coarse clipping and filtering may want to pre-compute an array of indices
+        // or offsets of items that passed the filtering test, recomputing this array when user changes the filter,
+        // and appending newly elements as they are inserted. This is left as a task to the user until we can manage
+        // to improve this example code!
+        // If your items are of variable height:
+        // - Split them into same height items would be simpler and facilitate random-seeking into your list.
+        // - Consider using manual call to IsRectVisible() and skipping extraneous decoration from your items.
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 1)); // Tighten spacing
+        if (copy_to_clipboard)
+            ImGui::LogToClipboard();
             for (const char* item : Items)
-            {
-                if (!Filter.PassFilter(item))
-                    continue;
+        {
+            if (!Filter.PassFilter(item))
+                continue;
 
-                // Normally you would store more information in your item than just a string.
-                // (e.g. make Items[] an array of structure, store color/type etc.)
-                ImVec4 color;
-                bool has_color = false;
-                if (strstr(item, "[error]")) { color = ImVec4(1.0f, 0.4f, 0.4f, 1.0f); has_color = true; }
-                else if (strncmp(item, "# ", 2) == 0) { color = ImVec4(1.0f, 0.8f, 0.6f, 1.0f); has_color = true; }
-                if (has_color)
-                    ImGui::PushStyleColor(ImGuiCol_Text, color);
-                ImGui::TextUnformatted(item);
-                if (has_color)
-                    ImGui::PopStyleColor();
-            }
-            if (copy_to_clipboard)
-                ImGui::LogFinish();
+            // Normally you would store more information in your item than just a string.
+            // (e.g. make Items[] an array of structure, store color/type etc.)
+            ImVec4 color;
+            bool has_color = false;
+            if (strstr(item, "[error]"))          { color = ImVec4(1.0f, 0.4f, 0.4f, 1.0f); has_color = true; }
+            else if (strncmp(item, "# ", 2) == 0) { color = ImVec4(1.0f, 0.8f, 0.6f, 1.0f); has_color = true; }
+            if (has_color)
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+            ImGui::TextUnformatted(item);
+            if (has_color)
+                ImGui::PopStyleColor();
+        }
+        if (copy_to_clipboard)
+            ImGui::LogFinish();
 
             // Keep up at the bottom of the scroll region if we were already at the bottom at the beginning of the frame.
             // Using a scrollbar or mouse-wheel will take away from the bottom edge.
-            if (ScrollToBottom || (AutoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY()))
-                ImGui::SetScrollHereY(1.0f);
-            ScrollToBottom = false;
+        if (ScrollToBottom || (AutoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY()))
+            ImGui::SetScrollHereY(1.0f);
+        ScrollToBottom = false;
 
-            ImGui::PopStyleVar();
+        ImGui::PopStyleVar();
         }
         ImGui::EndChild();
         ImGui::Separator();
@@ -7334,62 +7333,62 @@ struct ExampleAppLog
 
         if (ImGui::BeginChild("scrolling", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar))
         {
-            if (clear)
-                Clear();
-            if (copy)
-                ImGui::LogToClipboard();
+        if (clear)
+            Clear();
+        if (copy)
+            ImGui::LogToClipboard();
 
-            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
-            const char* buf = Buf.begin();
-            const char* buf_end = Buf.end();
-            if (Filter.IsActive())
-            {
-                // In this example we don't use the clipper when Filter is enabled.
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+        const char* buf = Buf.begin();
+        const char* buf_end = Buf.end();
+        if (Filter.IsActive())
+        {
+            // In this example we don't use the clipper when Filter is enabled.
                 // This is because we don't have random access to the result of our filter.
-                // A real application processing logs with ten of thousands of entries may want to store the result of
-                // search/filter.. especially if the filtering function is not trivial (e.g. reg-exp).
-                for (int line_no = 0; line_no < LineOffsets.Size; line_no++)
+            // A real application processing logs with ten of thousands of entries may want to store the result of
+            // search/filter.. especially if the filtering function is not trivial (e.g. reg-exp).
+            for (int line_no = 0; line_no < LineOffsets.Size; line_no++)
+            {
+                const char* line_start = buf + LineOffsets[line_no];
+                const char* line_end = (line_no + 1 < LineOffsets.Size) ? (buf + LineOffsets[line_no + 1] - 1) : buf_end;
+                if (Filter.PassFilter(line_start, line_end))
+                    ImGui::TextUnformatted(line_start, line_end);
+            }
+        }
+        else
+        {
+            // The simplest and easy way to display the entire buffer:
+            //   ImGui::TextUnformatted(buf_begin, buf_end);
+            // And it'll just work. TextUnformatted() has specialization for large blob of text and will fast-forward
+            // to skip non-visible lines. Here we instead demonstrate using the clipper to only process lines that are
+            // within the visible area.
+            // If you have tens of thousands of items and their processing cost is non-negligible, coarse clipping them
+            // on your side is recommended. Using ImGuiListClipper requires
+            // - A) random access into your data
+            // - B) items all being the  same height,
+                // both of which we can handle since we have an array pointing to the beginning of each line of text.
+            // When using the filter (in the block of code above) we don't have random access into the data to display
+            // anymore, which is why we don't use the clipper. Storing or skimming through the search result would make
+            // it possible (and would be recommended if you want to search through tens of thousands of entries).
+            ImGuiListClipper clipper;
+            clipper.Begin(LineOffsets.Size);
+            while (clipper.Step())
+            {
+                for (int line_no = clipper.DisplayStart; line_no < clipper.DisplayEnd; line_no++)
                 {
                     const char* line_start = buf + LineOffsets[line_no];
                     const char* line_end = (line_no + 1 < LineOffsets.Size) ? (buf + LineOffsets[line_no + 1] - 1) : buf_end;
-                    if (Filter.PassFilter(line_start, line_end))
-                        ImGui::TextUnformatted(line_start, line_end);
+                    ImGui::TextUnformatted(line_start, line_end);
                 }
             }
-            else
-            {
-                // The simplest and easy way to display the entire buffer:
-                //   ImGui::TextUnformatted(buf_begin, buf_end);
-                // And it'll just work. TextUnformatted() has specialization for large blob of text and will fast-forward
-                // to skip non-visible lines. Here we instead demonstrate using the clipper to only process lines that are
-                // within the visible area.
-                // If you have tens of thousands of items and their processing cost is non-negligible, coarse clipping them
-                // on your side is recommended. Using ImGuiListClipper requires
-                // - A) random access into your data
-                // - B) items all being the  same height,
-                // both of which we can handle since we have an array pointing to the beginning of each line of text.
-                // When using the filter (in the block of code above) we don't have random access into the data to display
-                // anymore, which is why we don't use the clipper. Storing or skimming through the search result would make
-                // it possible (and would be recommended if you want to search through tens of thousands of entries).
-                ImGuiListClipper clipper;
-                clipper.Begin(LineOffsets.Size);
-                while (clipper.Step())
-                {
-                    for (int line_no = clipper.DisplayStart; line_no < clipper.DisplayEnd; line_no++)
-                    {
-                        const char* line_start = buf + LineOffsets[line_no];
-                        const char* line_end = (line_no + 1 < LineOffsets.Size) ? (buf + LineOffsets[line_no + 1] - 1) : buf_end;
-                        ImGui::TextUnformatted(line_start, line_end);
-                    }
-                }
-                clipper.End();
-            }
-            ImGui::PopStyleVar();
+            clipper.End();
+        }
+        ImGui::PopStyleVar();
 
             // Keep up at the bottom of the scroll region if we were already at the bottom at the beginning of the frame.
             // Using a scrollbar or mouse-wheel will take away from the bottom edge.
-            if (AutoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
-                ImGui::SetScrollHereY(1.0f);
+        if (AutoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
+            ImGui::SetScrollHereY(1.0f);
         }
         ImGui::EndChild();
         ImGui::End();
@@ -7754,14 +7753,14 @@ static void ShowExampleAppConstrainedResize(bool* p_open)
             if (ImGui::Button("Set 500x500")) { ImGui::SetWindowSize(ImVec2(500, 500)); } ImGui::SameLine();
             if (ImGui::Button("Set 800x200")) { ImGui::SetWindowSize(ImVec2(800, 200)); }
             ImGui::SetNextItemWidth(ImGui::GetFontSize() * 20);
-            ImGui::Combo("Constraint", &type, test_desc, IM_ARRAYSIZE(test_desc));
+        ImGui::Combo("Constraint", &type, test_desc, IM_ARRAYSIZE(test_desc));
             ImGui::SetNextItemWidth(ImGui::GetFontSize() * 20);
-            ImGui::DragInt("Lines", &display_lines, 0.2f, 1, 100);
-            ImGui::Checkbox("Auto-resize", &auto_resize);
+        ImGui::DragInt("Lines", &display_lines, 0.2f, 1, 100);
+        ImGui::Checkbox("Auto-resize", &auto_resize);
             ImGui::Checkbox("Window padding", &window_padding);
-            for (int i = 0; i < display_lines; i++)
-                ImGui::Text("%*sHello, sailor! Making this line long enough for the example.", i * 4, "");
-        }
+        for (int i = 0; i < display_lines; i++)
+            ImGui::Text("%*sHello, sailor! Making this line long enough for the example.", i * 4, "");
+    }
     }
     ImGui::End();
 }
@@ -7999,8 +7998,8 @@ static void ShowExampleAppCustomRendering(bool* p_open)
                 x = p.x + 4;
                 y += sz + spacing;
             }
-            draw_list->AddNgonFilled(ImVec2(x + sz * 0.5f, y + sz * 0.5f), sz * 0.5f, col, ngon_sides);             x += sz + spacing;  // N-gon
-            draw_list->AddCircleFilled(ImVec2(x + sz * 0.5f, y + sz * 0.5f), sz * 0.5f, col, circle_segments);      x += sz + spacing;  // Circle
+            draw_list->AddNgonFilled(ImVec2(x + sz * 0.5f, y + sz * 0.5f), sz*0.5f, col, ngon_sides);               x += sz + spacing;  // N-gon
+            draw_list->AddCircleFilled(ImVec2(x + sz*0.5f, y + sz*0.5f), sz*0.5f, col, circle_segments);            x += sz + spacing;  // Circle
             draw_list->AddEllipseFilled(ImVec2(x + sz * 0.5f, y + sz * 0.5f), sz * 0.5f, sz * 0.3f, col, -0.3f, circle_segments); x += sz + spacing;// Ellipse
             draw_list->AddRectFilled(ImVec2(x, y), ImVec2(x + sz, y + sz), col);                                    x += sz + spacing;  // Square
             draw_list->AddRectFilled(ImVec2(x, y), ImVec2(x + sz, y + sz), col, 10.0f);                             x += sz + spacing;  // Square with all rounded corners
@@ -8381,10 +8380,10 @@ void ShowExampleAppDocuments(bool* p_open)
         // Close queue is locked once we started a popup
         for (MyDocument& doc : app.Documents)
             if (doc.WantClose)
-            {
+        {
                 doc.WantClose = false;
                 close_queue.push_back(&doc);
-            }
+        }
     }
 
     // Display closing confirmation UI
