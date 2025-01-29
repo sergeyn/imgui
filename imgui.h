@@ -341,7 +341,7 @@ namespace ImGui
     IMGUI_API ImDrawData*   GetDrawData();                              // valid after Render() and until the next call to NewFrame(). this is what you have to render.
 
     // Demo, Debug, Information
-    IMGUI_API void          ShowDemoWindow(bool* p_open = NULL);        // create Demo window. demonstrate most ImGui features. call this to learn about the library! try to make it always available in your application!
+    /*IMGUI_API */void          ShowDemoWindow(bool* p_open = NULL);        // create Demo window. demonstrate most ImGui features. call this to learn about the library! try to make it always available in your application!
     IMGUI_API void          ShowMetricsWindow(bool* p_open = NULL);     // create Metrics/Debugger window. display Dear ImGui internals: windows, draw commands, various internal state, etc.
     IMGUI_API void          ShowDebugLogWindow(bool* p_open = NULL);    // create Debug Log window. display a simplified log of important dear imgui events.
     IMGUI_API void          ShowIDStackToolWindow(bool* p_open = NULL); // create Stack Tool window. hover items with mouse to query information about the source of their unique ID.
@@ -2088,6 +2088,9 @@ struct ImVector
     inline void         clear_delete()                      { for (int n = 0; n < Size; n++) IM_DELETE(Data[n]); clear(); }     // Important: never called automatically! always explicit.
     inline void         clear_destruct()                    { for (int n = 0; n < Size; n++) Data[n].~T(); clear(); }           // Important: never called automatically! always explicit.
 
+    inline ImVector(ImVector<T>&& src):Size(src.Size),Capacity(src.Capacity),Data(src.Data) { src.Size = src.Capacity = 0; src.Data = nullptr; }
+    inline ImVector<T>& operator=(ImVector<T>&& src)        { clear(); Size = src.Size; Capacity = src.Capacity; Data = src.Data; src.Size = src.Capacity = 0; src.Data = nullptr; return *this;}
+
     inline bool         empty() const                       { return Size == 0; }
     inline int          size() const                        { return Size; }
     inline int          size_in_bytes() const               { return Size * (int)sizeof(T); }
@@ -2104,7 +2107,7 @@ struct ImVector
     inline const T&     front() const                       { IM_ASSERT(Size > 0); return Data[0]; }
     inline T&           back()                              { IM_ASSERT(Size > 0); return Data[Size - 1]; }
     inline const T&     back() const                        { IM_ASSERT(Size > 0); return Data[Size - 1]; }
-    inline void         swap(ImVector<T>& rhs)              { int rhs_size = rhs.Size; rhs.Size = Size; Size = rhs_size; int rhs_cap = rhs.Capacity; rhs.Capacity = Capacity; Capacity = rhs_cap; T* rhs_data = rhs.Data; rhs.Data = Data; Data = rhs_data; }
+    inline void         swap(ImVector<T>& rhs) noexcept     { int rhs_size = rhs.Size; rhs.Size = Size; Size = rhs_size; int rhs_cap = rhs.Capacity; rhs.Capacity = Capacity; Capacity = rhs_cap; T* rhs_data = rhs.Data; rhs.Data = Data; Data = rhs_data; }
 
     inline int          _grow_capacity(int sz) const        { int new_capacity = Capacity ? (Capacity + Capacity / 2) : 8; return new_capacity > sz ? new_capacity : sz; }
     inline void         resize(int new_size)                { if (new_size > Capacity) reserve(_grow_capacity(new_size)); Size = new_size; }
@@ -2130,6 +2133,11 @@ struct ImVector
     inline int          index_from_ptr(const T* it) const   { IM_ASSERT(it >= Data && it < Data + Size); const ptrdiff_t off = it - Data; return (int)off; }
 };
 IM_MSVC_RUNTIME_CHECKS_RESTORE
+
+namespace std
+{
+   template<class T> inline void swap(ImVector<T>& a, ImVector<T>& b) noexcept { a.swap(b); }
+}
 
 //-----------------------------------------------------------------------------
 // [SECTION] ImGuiStyle
@@ -2384,6 +2392,26 @@ struct ImGuiIO
     int         MetricsRenderWindows;               // Number of visible windows
     int         MetricsActiveWindows;               // Number of active windows
     ImVec2      MouseDelta;                         // Mouse delta. Note that this is zero if either current or previous position are invalid (-FLT_MAX,-FLT_MAX), so a disappearing/reappearing mouse won't have a huge delta.
+    float       NextRefresh;                    // Optional: tells when should next render happen to see any change in results, 0 on init so that first draw goes through
+#if 1
+    char        NextRefresh_dbg[64] = {};
+    void SetNextRefresh(float pause_ms, const char* dbg_reason)
+    {
+        if (pause_ms <= NextRefresh)
+        {
+            NextRefresh = pause_ms;
+#ifdef _MSC_VER
+            strncpy_s(NextRefresh_dbg, dbg_reason, sizeof(NextRefresh_dbg) / sizeof(char) - 1);
+#else
+            strncpy(NextRefresh_dbg, dbg_reason, sizeof(NextRefresh_dbg) / sizeof(char) - 1);
+#endif
+        }
+    }
+    const char* GetNextRefreshReason() const { return NextRefresh_dbg; }
+#else
+    void SetNextRefresh(float pause_ms, const char* /*dbg_line*/) { if (pause_ms <= NextRefresh) NextRefresh = pause_ms; }
+    const char* GetNextRefreshReason() const { return ""; }
+#endif
 
     //------------------------------------------------------------------
     // [Internal] Dear ImGui will maintain those fields. Forward compatibility not guaranteed!

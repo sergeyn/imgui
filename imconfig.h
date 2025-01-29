@@ -26,9 +26,12 @@
 //#define IMGUI_API __declspec(dllexport)                   // MSVC Windows: DLL export
 //#define IMGUI_API __declspec(dllimport)                   // MSVC Windows: DLL import
 //#define IMGUI_API __attribute__((visibility("default")))  // GCC/Clang: override visibility when set is hidden
+#ifndef IMGUI_API
+#define IMGUI_API __declspec(dllimport)
+#endif
 
 //---- Don't define obsolete functions/enums/behaviors. Consider enabling from time to time after updating to clean your code of obsolete function/names.
-//#define IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+#define IMGUI_DISABLE_OBSOLETE_FUNCTIONS
 
 //---- Disable all of Dear ImGui or don't implement standard windows/tools.
 // It is very strongly recommended to NOT disable the demo windows and debug tool during development. They are extremely useful in day to day work. Please read comments in imgui_demo.cpp.

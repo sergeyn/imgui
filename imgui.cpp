@@ -4140,6 +4140,8 @@ void ImGui::Initialize()
 #ifdef IMGUI_HAS_DOCK
 #endif
 
+    g.IO.SetNextRefresh(0, "context created");
+
     g.Initialized = true;
 }
 
@@ -5346,6 +5348,9 @@ void ImGui::NewFrame()
     g.ItemFlagsStack.push_back(ImGuiItemFlags_AutoClosePopups); // Default flags
     g.CurrentItemFlags = g.ItemFlagsStack.back();
     g.GroupStack.resize(0);
+
+    // set 'no need for refresh later' initially until one of the widgets tells otherwise
+    g.IO.NextRefresh = FLT_MAX; g.IO.SetNextRefresh(FLT_MAX, "");
 
     // [DEBUG] Update debug features
 #ifndef IMGUI_DISABLE_DEBUG_TOOLS
@@ -6870,7 +6875,10 @@ void ImGui::RenderWindowTitleBarContents(ImGuiWindow* window, const ImRect& titl
     // Collapse button (submitting first so it gets priority when choosing a navigation init fallback)
     if (has_collapse_button)
         if (CollapseButton(window->GetID("#COLLAPSE"), collapse_button_pos))
+        {
             window->WantCollapseToggle = true; // Defer actual collapsing to next frame as we are too far in the Begin() function
+            g.IO.SetNextRefresh(0, "window collapse toggled");
+        }
 
     // Close button
     if (has_close_button)
@@ -7187,13 +7195,17 @@ bool ImGui::Begin(const char* name, bool* p_open, ImGuiWindowFlags flags)
 
         // Hide new windows for one frame until they calculate their size
         if (window_just_created && (!window_size_x_set_by_api || !window_size_y_set_by_api))
+        {
             window->HiddenFramesCannotSkipItems = 1;
+            g.IO.SetNextRefresh(0, "HiddenFrames JustCreated");// don't delay rendering of new frame to get hidden frames working
+        }
 
         // Hide popup/tooltip window when re-opening while we measure size (because we recycle the windows)
         // We reset Size/ContentSize for reappearing popups/tooltips early in this function, so further code won't be tempted to use the old size.
         if (window_just_activated_by_user && (flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_Tooltip)) != 0)
         {
             window->HiddenFramesCannotSkipItems = 1;
+            g.IO.SetNextRefresh(0, "HiddenFrames JustActivated"); // don't delay rendering of new frame to get hidden frames working
             if (flags & ImGuiWindowFlags_AlwaysAutoResize)
             {
                 if (!window_size_x_set_by_api)
@@ -15070,11 +15082,13 @@ static void Platform_SetClipboardTextFn_DefaultImpl(ImGuiContext* ctx, const cha
 #ifdef _WIN32
 #include <shellapi.h>   // ShellExecuteA()
 #ifdef _MSC_VER
-#pragma comment(lib, "shell32")
+//#pragma comment(lib, "shell32")
 #endif
 static bool Platform_OpenInShellFn_DefaultImpl(ImGuiContext*, const char* path)
 {
-    return (INT_PTR)::ShellExecuteA(NULL, "open", path, NULL, NULL, SW_SHOWDEFAULT) > 32;
+   typedef decltype(&::ShellExecuteA) PFN_ShellExecuteA; static PFN_ShellExecuteA fShellExecuteA;
+   static HMODULE hshell32dll = [] { HMODULE h = LoadLibraryA("SHELL32.dll"); if (h) { atexit([]{ FreeLibrary(hshell32dll); }); fShellExecuteA = (PFN_ShellExecuteA) GetProcAddress(hshell32dll, "ShellExecuteA"); } return h; }();    
+   if (fShellExecuteA) return (INT_PTR)fShellExecuteA(NULL, "open", path, NULL, NULL, SW_SHOWDEFAULT) > 32; else return false;
 }
 #else
 #include <sys/wait.h>
@@ -15113,7 +15127,7 @@ static bool Platform_OpenInShellFn_DefaultImpl(ImGuiContext*, const char*) { ret
 
 #include <imm.h>
 #ifdef _MSC_VER
-#pragma comment(lib, "imm32")
+//#pragma comment(lib, "imm32")
 #endif
 
 static void Platform_SetImeDataFn_DefaultImpl(ImGuiContext*, ImGuiViewport* viewport, ImGuiPlatformImeData* data)
@@ -15123,20 +15137,36 @@ static void Platform_SetImeDataFn_DefaultImpl(ImGuiContext*, ImGuiViewport* view
     if (hwnd == 0)
         return;
 
+    typedef decltype(&::ImmGetContext) PFN_ImmGetContext; static PFN_ImmGetContext fImmGetContext;
+    typedef decltype(&::ImmSetCompositionWindow) PFN_ImmSetCompositionWindow; static PFN_ImmSetCompositionWindow fImmSetCompositionWindow;
+    typedef decltype(&::ImmSetCandidateWindow) PFN_ImmSetCandidateWindow; static PFN_ImmSetCandidateWindow fImmSetCandidateWindow;
+    typedef decltype(&::ImmReleaseContext) PFN_ImmReleaseContext; static PFN_ImmReleaseContext fImmReleaseContext;
+    static HMODULE himm32dll = []() { 
+			HMODULE h = LoadLibraryA("imm32.dll"); if (h) {
+         fImmGetContext = (PFN_ImmGetContext) GetProcAddress(himm32dll, "ImmGetContext");
+         fImmSetCompositionWindow = (PFN_ImmSetCompositionWindow) GetProcAddress(himm32dll, "ImmSetCompositionWindow");
+         fImmSetCandidateWindow = (PFN_ImmSetCandidateWindow) GetProcAddress(himm32dll, "ImmSetCandidateWindow");
+         fImmReleaseContext = (PFN_ImmReleaseContext) GetProcAddress(himm32dll, "ImmReleaseContext");
+         if (fImmGetContext && fImmSetCompositionWindow && fImmSetCandidateWindow && fImmReleaseContext) { atexit([]{ FreeLibrary(himm32dll); }); }
+         FreeLibrary(h);
+         h = nullptr;
+         } return h;}();
+
+    
     //::ImmAssociateContextEx(hwnd, NULL, data->WantVisible ? IACE_DEFAULT : 0);
-    if (HIMC himc = ::ImmGetContext(hwnd))
+    if (HIMC himc = himm32dll ? fImmGetContext(hwnd) : nullptr)
     {
         COMPOSITIONFORM composition_form = {};
         composition_form.ptCurrentPos.x = (LONG)data->InputPos.x;
         composition_form.ptCurrentPos.y = (LONG)data->InputPos.y;
         composition_form.dwStyle = CFS_FORCE_POSITION;
-        ::ImmSetCompositionWindow(himc, &composition_form);
+        fImmSetCompositionWindow(himc, &composition_form);
         CANDIDATEFORM candidate_form = {};
         candidate_form.dwStyle = CFS_CANDIDATEPOS;
         candidate_form.ptCurrentPos.x = (LONG)data->InputPos.x;
         candidate_form.ptCurrentPos.y = (LONG)data->InputPos.y;
-        ::ImmSetCandidateWindow(himc, &candidate_form);
-        ::ImmReleaseContext(hwnd, himc);
+        fImmSetCandidateWindow(himc, &candidate_form);
+        fImmReleaseContext(hwnd, himc);
     }
 }
 

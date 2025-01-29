@@ -60,6 +60,7 @@ IMGUI_IMPL_API bool     ImGui_ImplDX12_Init(ID3D12Device* device, int num_frames
 
 // Use if you want to reset your rendering device without losing Dear ImGui state.
 IMGUI_IMPL_API bool     ImGui_ImplDX12_CreateDeviceObjects();
+IMGUI_IMPL_API void     ImGui_ImplDX12_InvalidateFontTexture();
 IMGUI_IMPL_API void     ImGui_ImplDX12_InvalidateDeviceObjects();
 
 // [BETA] Selected render state data shared with callbacks.

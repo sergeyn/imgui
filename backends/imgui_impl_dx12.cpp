@@ -323,6 +323,11 @@ static void ImGui_ImplDX12_CreateFontsTexture()
     // Build texture atlas
     ImGuiIO& io = ImGui::GetIO();
     ImGui_ImplDX12_Data* bd = ImGui_ImplDX12_GetBackendData();
+
+    // clear prior textures if any
+    SafeRelease(bd->FontTexture.pTextureResource);
+
+
     unsigned char* pixels;
     int width, height;
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
@@ -691,9 +696,15 @@ bool    ImGui_ImplDX12_CreateDeviceObjects()
     if (result_pipeline_state != S_OK)
         return false;
 
-    ImGui_ImplDX12_CreateFontsTexture();
-
     return true;
+}
+
+void     ImGui_ImplDX12_InvalidateFontTexture()
+{
+   ImGui_ImplDX12_Data* bd = ImGui_ImplDX12_GetBackendData();
+   if (!bd || !bd->pd3dDevice)
+      return;
+   SafeRelease(bd->FontTexture.pTextureResource);
 }
 
 void    ImGui_ImplDX12_InvalidateDeviceObjects()
@@ -821,6 +832,8 @@ void ImGui_ImplDX12_NewFrame()
 
     if (!bd->pPipelineState)
         ImGui_ImplDX12_CreateDeviceObjects();
+    if (!bd->FontTexture.pTextureResource) // texture can be released in case of dpi change
+       ImGui_ImplDX12_CreateFontsTexture();
 }
 
 //-----------------------------------------------------------------------------

@@ -11,6 +11,8 @@
 #include "imgui_impl_dx11.h"
 #include <d3d11.h>
 #include <tchar.h>
+#include <cstdio>
+#include <string>
 
 // Data
 static ID3D11Device*            g_pd3dDevice = nullptr;
@@ -26,6 +28,7 @@ void CleanupDeviceD3D();
 void CreateRenderTarget();
 void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+void HandleDpiChange(float dpi_scale);
 
 // Main code
 int main(int, char**)
@@ -55,6 +58,8 @@ int main(int, char**)
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
 
+    HandleDpiChange(float(GetDpiForWindow(hwnd) / 96.0));
+
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
     //ImGui::StyleColorsLight();
@@ -83,6 +88,7 @@ int main(int, char**)
     bool show_demo_window = true;
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+    int fame_number = 0;
 
     // Main loop
     bool done = false;
@@ -90,6 +96,7 @@ int main(int, char**)
     {
         // Poll and handle messages (inputs, window resize, etc.)
         // See the WndProc() function below for our to dispatch events to the Win32 backend.
+#if 0
         MSG msg;
         while (::PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE))
         {
@@ -98,6 +105,8 @@ int main(int, char**)
             if (msg.message == WM_QUIT)
                 done = true;
         }
+#endif
+
         if (done)
             break;
 
@@ -118,9 +127,15 @@ int main(int, char**)
             CreateRenderTarget();
         }
 
+        
+        // Start the Dear ImGui frame
+        if (!ImGui_ImplWin32_NewFrame())
+           break;
+
+        printf("rendeing frame %i, reason: %s (%5.2fs)... ", fame_number++, io.GetNextRefreshReason(), io.NextRefresh >= FLT_MAX ? 99.99f : io.NextRefresh);
+
         // Start the Dear ImGui frame
         ImGui_ImplDX11_NewFrame();
-        ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
         // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
@@ -162,6 +177,12 @@ int main(int, char**)
 
         // Rendering
         ImGui::Render();
+
+        if (io.NextRefresh >= FLT_MAX)
+            printf("\n");
+        else
+            printf("\tnextrefresh: %s(in %5.2fs)\n", io.GetNextRefreshReason(), io.NextRefresh >= FLT_MAX ? 99.99f : io.NextRefresh);
+
         const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
         g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, nullptr);
         g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
@@ -241,6 +262,21 @@ void CleanupRenderTarget()
     if (g_mainRenderTargetView) { g_mainRenderTargetView->Release(); g_mainRenderTargetView = nullptr; }
 }
 
+void HandleDpiChange(float dpi_scale)
+{
+    ImGui_ImplDX11_InvalidateFontTexture();
+
+    char dir[512];
+    GetSystemDirectoryA(dir, _countof(dir));
+
+    ImGui::GetStyle().ScaleAllSizes(dpi_scale);
+
+    ImGuiIO& io = ImGui::GetIO();
+    io.Fonts->Clear();
+    io.Fonts->AddFontFromFileTTF((std::string(dir) + "\\..\\Fonts\\segoeui.ttf").c_str(), roundf(16 * dpi_scale));
+    io.SetNextRefresh(0, "dpi changed");
+}
+
 // Forward declare message handler from imgui_impl_win32.cpp
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -256,6 +292,9 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     switch (msg)
     {
+    case WM_DPICHANGED:
+        HandleDpiChange(float(HIWORD(wParam) / 96.0));
+        return 0;
     case WM_SIZE:
         if (wParam == SIZE_MINIMIZED)
             return 0;

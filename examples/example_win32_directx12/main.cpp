@@ -12,6 +12,8 @@
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <tchar.h>
+#include <cstdio>
+#include <string>
 
 #ifdef _DEBUG
 #define DX12_ENABLE_DEBUG_LAYER
@@ -82,6 +84,7 @@ struct ExampleDescriptorHeapAllocator
 static FrameContext                 g_frameContext[APP_NUM_FRAMES_IN_FLIGHT] = {};
 static UINT                         g_frameIndex = 0;
 
+static int const                    NUM_BACK_BUFFERS = 2;
 static ID3D12Device*                g_pd3dDevice = nullptr;
 static ID3D12DescriptorHeap*        g_pd3dRtvDescHeap = nullptr;
 static ID3D12DescriptorHeap*        g_pd3dSrvDescHeap = nullptr;
@@ -105,12 +108,13 @@ void CleanupRenderTarget();
 void WaitForLastSubmittedFrame();
 FrameContext* WaitForNextFrameResources();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+void HandleDpiChange(float dpi_scale);
 
 // Main code
 int main(int, char**)
 {
     // Create application window
-    //ImGui_ImplWin32_EnableDpiAwareness();
+    //ImGui_ImplWin32_EnableDpiAwareness(); // COMMENTED OUT SINCE WINDOWS RECOMMENDATION IS TO USE MANIFEST AND NOT USE FUNCTIONS TO DYNAMIC ENABLE DPI AWARENESS
     WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(nullptr), nullptr, nullptr, nullptr, nullptr, L"ImGui Example", nullptr };
     ::RegisterClassExW(&wc);
     HWND hwnd = ::CreateWindowW(wc.lpszClassName, L"Dear ImGui DirectX12 Example", WS_OVERLAPPEDWINDOW, 100, 100, 1280, 800, nullptr, nullptr, wc.hInstance, nullptr);
@@ -133,6 +137,8 @@ int main(int, char**)
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+    HandleDpiChange(float(GetDpiForWindow(hwnd) / 96.0));
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
@@ -174,6 +180,7 @@ int main(int, char**)
     bool show_demo_window = true;
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+    int fame_number = 0;
 
     // Main loop
     bool done = false;
@@ -181,6 +188,7 @@ int main(int, char**)
     {
         // Poll and handle messages (inputs, window resize, etc.)
         // See the WndProc() function below for our to dispatch events to the Win32 backend.
+#if 0
         MSG msg;
         while (::PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE))
         {
@@ -189,6 +197,8 @@ int main(int, char**)
             if (msg.message == WM_QUIT)
                 done = true;
         }
+#endif
+
         if (done)
             break;
 
@@ -201,8 +211,12 @@ int main(int, char**)
         g_SwapChainOccluded = false;
 
         // Start the Dear ImGui frame
+        if (!ImGui_ImplWin32_NewFrame())
+           break;
+
+        printf("rendeing frame %i, reason: %s (%5.2fs)... ", fame_number++, io.GetNextRefreshReason(), io.NextRefresh >= FLT_MAX ? 99.99f : io.NextRefresh);
         ImGui_ImplDX12_NewFrame();
-        ImGui_ImplWin32_NewFrame();
+
         ImGui::NewFrame();
 
         // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
@@ -244,6 +258,12 @@ int main(int, char**)
 
         // Rendering
         ImGui::Render();
+
+        if (io.NextRefresh >= FLT_MAX)
+            printf("\n");
+        else
+            printf("\tnextrefresh: %s(in %5.2fs)\n", io.GetNextRefreshReason(), io.NextRefresh >= FLT_MAX ? 99.99f : io.NextRefresh);
+
 
         FrameContext* frameCtx = WaitForNextFrameResources();
         UINT backBufferIdx = g_pSwapChain->GetCurrentBackBufferIndex();
@@ -319,12 +339,23 @@ bool CreateDeviceD3D(HWND hWnd)
         sd.Stereo = FALSE;
     }
 
+    UINT dxgiFactoryFlags = 0;
+
     // [DEBUG] Enable debug interface
 #ifdef DX12_ENABLE_DEBUG_LAYER
     ID3D12Debug* pdx12Debug = nullptr;
     if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&pdx12Debug))))
+    {
         pdx12Debug->EnableDebugLayer();
+        ID3D12Debug1* debug1;
+        if (SUCCEEDED(pdx12Debug->QueryInterface(IID_PPV_ARGS(&debug1))))
+        {
+            debug1->SetEnableGPUBasedValidation(TRUE);
+            debug1->Release();
+        }
+    }
 #endif
+    dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
 
     // Create device
     D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
@@ -336,11 +367,13 @@ bool CreateDeviceD3D(HWND hWnd)
     if (pdx12Debug != nullptr)
     {
         ID3D12InfoQueue* pInfoQueue = nullptr;
-        g_pd3dDevice->QueryInterface(IID_PPV_ARGS(&pInfoQueue));
-        pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
-        pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
-        pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
-        pInfoQueue->Release();
+        if (SUCCEEDED(g_pd3dDevice->QueryInterface(IID_PPV_ARGS(&pInfoQueue))))
+        {
+            pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
+            pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
+            pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
+            pInfoQueue->Release();
+        }
         pdx12Debug->Release();
     }
 #endif
@@ -400,7 +433,7 @@ bool CreateDeviceD3D(HWND hWnd)
     {
         IDXGIFactory4* dxgiFactory = nullptr;
         IDXGISwapChain1* swapChain1 = nullptr;
-        if (CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory)) != S_OK)
+        if (CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&dxgiFactory)) != S_OK)
             return false;
         if (dxgiFactory->CreateSwapChainForHwnd(g_pd3dCommandQueue, hWnd, &sd, nullptr, nullptr, &swapChain1) != S_OK)
             return false;
@@ -408,7 +441,7 @@ bool CreateDeviceD3D(HWND hWnd)
             return false;
         swapChain1->Release();
         dxgiFactory->Release();
-        g_pSwapChain->SetMaximumFrameLatency(APP_NUM_BACK_BUFFERS);
+        g_pSwapChain->SetMaximumFrameLatency(/*NUM_BACK_BUFFERS*/1);
         g_hSwapChainWaitableObject = g_pSwapChain->GetFrameLatencyWaitableObject();
     }
 
@@ -499,6 +532,21 @@ FrameContext* WaitForNextFrameResources()
     return frameCtx;
 }
 
+void HandleDpiChange(float dpi_scale)
+{
+    ImGui_ImplDX12_InvalidateFontTexture();
+
+    char dir[512];
+    GetSystemDirectoryA(dir, _countof(dir));
+
+    ImGui::GetStyle().ScaleAllSizes(dpi_scale);
+
+    ImGuiIO& io = ImGui::GetIO();
+    io.Fonts->Clear();
+    io.Fonts->AddFontFromFileTTF((std::string(dir) + "\\..\\Fonts\\segoeui.ttf").c_str(), roundf(16 * dpi_scale));
+    io.SetNextRefresh(0, "dpi changed");
+}
+
 // Forward declare message handler from imgui_impl_win32.cpp
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -514,6 +562,9 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     switch (msg)
     {
+    case WM_DPICHANGED:
+        HandleDpiChange(float(HIWORD(wParam) / 96.0));
+        return 0;
     case WM_SIZE:
         if (g_pd3dDevice != nullptr && wParam != SIZE_MINIMIZED)
         {

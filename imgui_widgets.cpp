@@ -706,7 +706,10 @@ bool ImGui::ButtonBehavior(const ImRect& bb, ImGuiID id, bool* out_hovered, bool
                 ClearActiveID();
         }
         if (pressed)
+        {
             g.ActiveIdHasBeenPressedBefore = true;
+            g.IO.SetNextRefresh(0, "button pressed");
+        }
     }
 
     // Activation highlight (this may be a remote activation)
@@ -1184,6 +1187,7 @@ bool ImGui::Checkbox(const char* label, bool* v)
         *v = checked;
         pressed = true; // return value
         MarkItemEdited(id);
+        g.IO.SetNextRefresh(0, "checkbox pressed");
     }
 
     const ImRect check_bb(pos, pos + ImVec2(square_sz, square_sz));
@@ -5297,8 +5301,27 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
             bool cursor_is_visible = (!g.IO.ConfigInputTextCursorBlink) || (state->CursorAnim <= 0.0f) || ImFmod(state->CursorAnim, 1.20f) <= 0.80f;
             ImVec2 cursor_screen_pos = ImTrunc(draw_pos + cursor_offset - draw_scroll);
             ImRect cursor_screen_rect(cursor_screen_pos.x, cursor_screen_pos.y - g.FontSize + 0.5f, cursor_screen_pos.x + 1.0f, cursor_screen_pos.y - 1.5f);
-            if (cursor_is_visible && cursor_screen_rect.Overlaps(clip_rect))
-                draw_window->DrawList->AddLine(cursor_screen_rect.Min, cursor_screen_rect.GetBL(), GetColorU32(ImGuiCol_Text));
+            
+            //bool cursor_is_visible = cursor_screen_rect.Overlaps(clip_rect);
+            if (cursor_is_visible)
+            {
+                if (g.IO.ConfigInputTextCursorBlink)
+                {
+                    float next_refresh_time = -state->CursorAnim;
+                    if (state->CursorAnim > 0.0f)
+                    {
+                        float modded = ImFmod(state->CursorAnim, 1.20f);
+                        bool now_visible_blink_phase = modded <= 0.80f;
+                        state->CursorAnim = modded; //prevent fp error from accumulation
+                        next_refresh_time = now_visible_blink_phase ? 0.80f - modded : 1.20f - modded;
+                        cursor_is_visible = now_visible_blink_phase;
+                    }
+                    g.IO.SetNextRefresh( next_refresh_time, "text cursor blink");
+                }
+
+                if (cursor_is_visible)
+                    draw_window->DrawList->AddLine(cursor_screen_rect.Min, cursor_screen_rect.GetBL(), GetColorU32(ImGuiCol_Text));
+            }
 
             // Notify OS of text input position for advanced IME (-1 x offset so that Windows IME can cover our cursor. Bit of an extra nicety.)
             if (!is_readonly)
@@ -9107,6 +9130,9 @@ bool ImGui::MenuItemEx(const char* label, const char* icon, const char* shortcut
     PopID();
     if (menuset_is_open)
         PopItemFlag();
+
+    if (pressed)
+       g.IO.SetNextRefresh(0,"menu item pressed");
 
     return pressed;
 }

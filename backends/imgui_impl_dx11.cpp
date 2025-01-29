@@ -543,9 +543,17 @@ bool    ImGui_ImplDX11_CreateDeviceObjects()
         bd->pd3dDevice->CreateSamplerState(&desc, &bd->pFontSampler);
     }
 
-    ImGui_ImplDX11_CreateFontsTexture();
-
     return true;
+}
+
+void     ImGui_ImplDX11_InvalidateFontTexture()
+{
+   ImGui_ImplDX11_Data* bd = ImGui_ImplDX11_GetBackendData();
+   if (!bd || !bd->pd3dDevice)
+      return;   
+   if (bd->pFontTextureView) 
+      bd->pFontTextureView->Release();
+   bd->pFontTextureView = nullptr;
 }
 
 void    ImGui_ImplDX11_InvalidateDeviceObjects()
@@ -624,6 +632,8 @@ void ImGui_ImplDX11_NewFrame()
 
     if (!bd->pFontSampler)
         ImGui_ImplDX11_CreateDeviceObjects();
+    if (!bd->pFontTextureView) // texture can be released in case of dpi change
+       ImGui_ImplDX11_CreateFontsTexture();
 }
 
 //-----------------------------------------------------------------------------
