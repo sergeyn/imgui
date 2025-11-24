@@ -12,6 +12,8 @@
 #include <d3d12.h>
 #include <dxgi1_5.h>
 #include <tchar.h>
+#include <cstdio>
+#include <string>
 
 #ifdef _DEBUG
 #define DX12_ENABLE_DEBUG_LAYER
@@ -82,6 +84,7 @@ struct ExampleDescriptorHeapAllocator
 static FrameContext                 g_frameContext[APP_NUM_FRAMES_IN_FLIGHT] = {};
 static UINT                         g_frameIndex = 0;
 
+static int const                    NUM_BACK_BUFFERS = 2;
 static ID3D12Device*                g_pd3dDevice = nullptr;
 static ID3D12DescriptorHeap*        g_pd3dRtvDescHeap = nullptr;
 static ID3D12DescriptorHeap*        g_pd3dSrvDescHeap = nullptr;
@@ -106,6 +109,7 @@ void CleanupRenderTarget();
 void WaitForPendingOperations();
 FrameContext* WaitForNextFrameContext();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+void HandleDpiChange(float dpi_scale);
 
 // Main code
 int main(int, char**)
@@ -137,6 +141,8 @@ int main(int, char**)
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+    HandleDpiChange(float(GetDpiForWindow(hwnd) / 96.0));
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
@@ -186,6 +192,9 @@ int main(int, char**)
     bool show_demo_window = true;
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+    LARGE_INTEGER last_frame_time, timer_freq;
+    QueryPerformanceFrequency(&timer_freq);
+    QueryPerformanceCounter(&last_frame_time);
 
     // Main loop
     bool done = false;
@@ -193,6 +202,7 @@ int main(int, char**)
     {
         // Poll and handle messages (inputs, window resize, etc.)
         // See the WndProc() function below for our to dispatch events to the Win32 backend.
+#if 0
         MSG msg;
         while (::PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE))
         {
@@ -201,6 +211,8 @@ int main(int, char**)
             if (msg.message == WM_QUIT)
                 done = true;
         }
+#endif
+
         if (done)
             break;
 
@@ -213,8 +225,17 @@ int main(int, char**)
         g_SwapChainOccluded = false;
 
         // Start the Dear ImGui frame
+        if (!ImGui_ImplWin32_NewFrame())
+           break;
+
+        LARGE_INTEGER t0; QueryPerformanceCounter(&t0);
+        auto refresh_reason = io.NextRefreshStack.Entries[0];// double refresh_delay = io.NextRefresh >= FLT_MAX ? 99.99f : io.NextRefresh;
+        
+
         ImGui_ImplDX12_NewFrame();
-        ImGui_ImplWin32_NewFrame();
+
+        LARGE_INTEGER t1; QueryPerformanceCounter(&t1);
+
         ImGui::NewFrame();
 
         // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
@@ -253,10 +274,16 @@ int main(int, char**)
                 show_another_window = false;
             ImGui::End();
         }
+        
+        static bool implot_open = false;
+        ImPlot::ShowDemoWindow(&implot_open);
+
+        LARGE_INTEGER t2; QueryPerformanceCounter(&t2);
 
         // Rendering
         ImGui::Render();
-
+        
+        
         FrameContext* frameCtx = WaitForNextFrameContext();
         UINT backBufferIdx = g_pSwapChain->GetCurrentBackBufferIndex();
         frameCtx->CommandAllocator->Reset();
@@ -286,10 +313,32 @@ int main(int, char**)
         g_pd3dCommandQueue->Signal(g_fence, ++g_fenceLastSignaledValue);
         frameCtx->FenceValue = g_fenceLastSignaledValue;
 
+        LARGE_INTEGER t3; QueryPerformanceCounter(&t3);
+
         // Present
         HRESULT hr = g_pSwapChain->Present(1, 0);   // Present with vsync
         //HRESULT hr = g_pSwapChain->Present(0, g_SwapChainTearingSupport ? DXGI_PRESENT_ALLOW_TEARING : 0); // Present without vsync
         g_SwapChainOccluded = (hr == DXGI_STATUS_OCCLUDED);
+
+
+        LARGE_INTEGER t4; QueryPerformanceCounter(&t4);
+
+        double layout_time = double(t2.QuadPart-t1.QuadPart)/timer_freq.QuadPart;
+        double render_time = double((t1.QuadPart-t0.QuadPart) + (t3.QuadPart-t2.QuadPart)) / timer_freq.QuadPart;
+        double present_time = double(t4.QuadPart - t3.QuadPart) / timer_freq.QuadPart;
+        double sleep_time  = double(t0.QuadPart - last_frame_time.QuadPart) / timer_freq.QuadPart;
+
+        printf("ImGui #%i(%+6.3fs %ims(I%ims,R%ims,P%ims)), reason: %s (%0.2fs) ... %s", g_frameIndex, sleep_time, (int)round((layout_time + render_time)*1000.0), (int)round(layout_time * 1000.0), (int)round(render_time * 1000.0), (int)round(present_time * 1000.0), refresh_reason.reason, refresh_reason.delay, io.NextRefreshStack.Size ? "" : "\n");
+        if (io.NextRefreshStack.Size)
+        {
+           printf(" refresh stack:");
+          for (int i = 0; i < io.NextRefreshStack.Size; ++i)
+              printf("%c%s(+%0.2fs)", i == 0 ? ' ' : ',' ,io.NextRefreshStack.Entries[i].reason, io.NextRefreshStack.Entries[i].delay);
+          printf("\n");
+        }
+        
+
+        last_frame_time = t3;
         g_frameIndex++;
     }
 
@@ -330,12 +379,23 @@ bool CreateDeviceD3D(HWND hWnd)
         sd.Stereo = FALSE;
     }
 
+    UINT dxgiFactoryFlags = 0;
+
     // [DEBUG] Enable debug interface
 #ifdef DX12_ENABLE_DEBUG_LAYER
     ID3D12Debug* pdx12Debug = nullptr;
     if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&pdx12Debug))))
+    {
         pdx12Debug->EnableDebugLayer();
+        ID3D12Debug1* debug1;
+        if (SUCCEEDED(pdx12Debug->QueryInterface(IID_PPV_ARGS(&debug1))))
+        {
+            debug1->SetEnableGPUBasedValidation(TRUE);
+            debug1->Release();
+        }
+    }
 #endif
+    dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
 
     // Create device
     D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
@@ -420,7 +480,7 @@ bool CreateDeviceD3D(HWND hWnd)
     {
         IDXGIFactory5* dxgiFactory = nullptr;
         IDXGISwapChain1* swapChain1 = nullptr;
-        if (CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory)) != S_OK)
+        if (CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&dxgiFactory)) != S_OK)
             return false;
 
         BOOL allow_tearing = FALSE;
@@ -438,7 +498,7 @@ bool CreateDeviceD3D(HWND hWnd)
 
         swapChain1->Release();
         dxgiFactory->Release();
-        g_pSwapChain->SetMaximumFrameLatency(APP_NUM_BACK_BUFFERS);
+        g_pSwapChain->SetMaximumFrameLatency(/*NUM_BACK_BUFFERS*/1);
         g_hSwapChainWaitableObject = g_pSwapChain->GetFrameLatencyWaitableObject();
     }
 
@@ -513,6 +573,20 @@ FrameContext* WaitForNextFrameContext()
     return frame_context;
 }
 
+void HandleDpiChange(float dpi_scale)
+{
+
+    char dir[512];
+    GetSystemDirectoryA(dir, _countof(dir));
+
+    ImGui::GetStyle().ScaleAllSizes(dpi_scale);
+
+    ImGuiIO& io = ImGui::GetIO();
+    io.Fonts->Clear();
+    io.Fonts->AddFontFromFileTTF((std::string(dir) + "\\..\\Fonts\\segoeui.ttf").c_str(), roundf(16 * dpi_scale));
+    io.SetNextRefresh(0, "dpi changed");
+}
+
 // Forward declare message handler from imgui_impl_win32.cpp
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -528,6 +602,9 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     switch (msg)
     {
+    case WM_DPICHANGED:
+        HandleDpiChange(float(HIWORD(wParam) / 96.0));
+        return 0;
     case WM_SIZE:
         if (g_pd3dDevice != nullptr && wParam != SIZE_MINIMIZED)
         {
